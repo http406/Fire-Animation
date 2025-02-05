@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fire Animation</title>
+        <style>
+            body {
+                background-color: black;
+                margin: 0;
+                overflow: hidden;
+            }
+            canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                filter: blur(18px) contrast(5);
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script>
+            // 2D Vector class for handling positions and movement
+            class Vector2 {
+                constructor(x = 0, y = 0) {
+                    this.x = x;
+                    this.y = y;
+                }
+
+                add(v) {
+                    this.x += v.x;
+                    this.y += v.y;
+                    return this;
+                }
+
+                lerp(v, alpha = 0.1) {
+                    this.x += (v.x - this.x) * alpha;
+                    this.y += (v.y - this.y) * alpha;
+                    return this;
+                }
+            }
+
+            // Simplex Noise function for smooth random movement
+            function SimplexNoise() {
+                const perm = new Uint8Array(512);
+                for (let i = 0; i < 256; i++) perm[i] = perm[i + 256] = i;
+                perm.sort(() => Math.random() - 0.5);
+                
+                function fade(t) {
+                    return t * t * t * (t * (t * 6 - 15) + 10);
+                }
+
+                function grad(hash, x, y, z) {
+                    const h = hash & 15;
+                    const u = h < 8 ? x : y;
+                    const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+                    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+                }
+
+                return {
+                    simplex3: (x, y, z) => {
+                        const X = Math.floor(x) & 255,
+                            Y = Math.floor(y) & 255,
+                            Z = Math.floor(z) & 255;
+                        x -= Math.floor(x);
+                        y -= Math.floor(y);
+                        z -= Math.floor(z);
+                        const u = fade(x),
+                            v = fade(y),
+                            w = fade(z);
+                        const A = perm[X] + Y,
+                            AA = perm[A] + Z,
+                            AB = perm[A + 1] + Z,
+                            B = perm[X + 1] + Y,
+                            BA = perm[B] + Z,
+                            BB = perm[B + 1] + Z;
+                        return (
+                            lerp(
+                                lerp(
+                                    lerp(grad(perm[AA], x, y, z), grad(perm[BA], x - 1, y, z), u),
+                                    lerp(grad(perm[AB], x, y - 1, z), grad(perm[BB], x - 1, y - 1, z), u),
+                                    v
+                                ),
+                                lerp(
+                                    lerp(grad(perm[AA + 1], x, y, z - 1), grad(perm[BA + 1], x - 1, y, z - 1), u),
+                                    lerp(grad(perm[AB + 1], x, y - 1, z - 1), grad(perm[BB + 1], x - 1, y - 1, z - 1), u),
+                                    v
+                                ),
+                                w
+                            )
+                        );
+                    }
+                };
+            }
+
+            // Helper function for linear interpolation
+            function lerp(a, b, t) {
+                return a + t * (b - a);
+            }
+
+            const lib = {
+                v2: Vector2,
+                noise: SimplexNoise()
+            };
+
+            ((window, document, lib, undefined) => {
+                'use strict';
+
+                // Ensuring requestAnimationFrame works across all browsers including iOS
+                this.requestAnimationFrame = (() => {
+                    return window.requestAnimationFrame ||
+                        window.webkitRequestAnimationFrame ||
+                        window.mozRequestAnimationFrame ||
+                        window.oRequestAnimationFrame ||
+                        window.msRequestAnimationFrame ||
+                        function(callback) {
+                            window.setTimeout(callback, 1000 / 60);
+                        };
+                })();
+
+                const RAND = Math.random,
+                    COS = Math.cos,
+                    SIN = Math.sin,
+                    PI = Math.PI;
+
+                // Individual flame particle class
+                class Flame extends lib.v2 {
+                    constructor(x, y) {
+                        super(x, y);
+                        this.noiseVelocity = new lib.v2();
+                        this.baseVelocity = new lib.v2(1 - RAND() * 2, RAND() * 4);
+                    }
+                    update() {
+                        if (this.baseVelocity.y > -5) {
+                            this.baseVelocity.y -= 0.2;
+                        }
+                        this.add(this.baseVelocity).add(this.noiseVelocity);
+                    }
+                }
+
+                // Main application class controlling the animation
+                class App {
+                    constructor() {
+                        this.mouseOver = false;
+                        this.mouse = new lib.v2();
+                        this.base = new lib.v2();
+                        this.position = new lib.v2();
+                        this.canvas = document.querySelector('canvas');
+                        this.ctx = this.canvas.getContext('2d');
+                        this.tick = 0;
+                        this.flames = [];
+
+                        window.onresize = () => this.resize();
+                        window.onmousemove = (e) => this.mouseHandler(e);
+                        window.onmouseout = (e) => this.mouseHandler(e);
+                        window.onclick = (e) => this.mouseHandler(e);
+
+                        this.resize();
+                        this.loop();
+                    }
+
+                    resize() {
+                        this.width = this.canvas.width = window.innerWidth;
+                        this.height = this.canvas.height = window.innerHeight;
+                        this.base.x = this.width / 2;
+                        this.base.y = this.height - 100;
+                    }
+
+                    mouseHandler(e) {
+                        this.mouse.x = e.clientX;
+                        this.mouse.y = e.clientY;
+                        if (e.type === 'mousemove') this.mouseOver = true;
+                        if (e.type === 'click') {
+                            for (let i = 0; i < 20; i++) {
+                                let f = new Flame(e.clientX, e.clientY);
+                                f.baseVelocity = new lib.v2(6 - RAND() * 12, RAND() * 8);
+                                this.flames.push(f);
+                            }
+                        }
+                        if (e.type === 'mouseout') this.mouseOver = false;
+                    }
+
+                    render() {
+                        this.tick++;
+                        this.ctx.fillStyle = 'rgba(0,0,0,1)';
+                        this.ctx.fillRect(0, 0, this.width, this.height);
+                        this.flames.push(new Flame(this.position.x, this.position.y));
+
+                        this.ctx.save();
+                        for (let i = this.flames.length - 1; i > 0; i--) {
+                            let f = this.flames[i];
+                            f.update();
+                            this.ctx.fillStyle = `hsla(50,50%,50%,${(f.y / window.innerHeight + 0.1).toFixed(2)})`;
+                            this.ctx.fillRect(f.x - i / 4, f.y - 30, i / 2, 60);
+                            if (f.y < 0) this.flames.splice(i, 1);
+                        }
+                        this.ctx.restore();
+                        this.mouseOver ? this.position.lerp(this.mouse) : this.position.lerp(this.base);
+                    }
+
+                    loop() {
+                        this.render();
+                        requestAnimationFrame(this.loop.bind(this));
+                    }
+                }
+
+                this.onload = () => new App();
+
+            })(this, document, lib);
+
+        </script>
+    </body>
+  </html>
